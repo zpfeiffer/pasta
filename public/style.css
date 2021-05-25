@@ -1,0 +1,38 @@
+body {
+    font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+    max-width: 840px;
+    margin: 0 auto;
+}
+/*
+form {
+    border: 1px solid black;
+    border-radius: 5px;
+    padding: 1rem;
+}
+
+form textarea {
+    border-radius: 5px;
+    width: 100%;
+    margin-bottom: 1rem;
+}
+
+form input {
+    width: 90%;
+    border-radius: 5px;
+    padding: 0.5rem;
+}*/
+
+pre.paste-content {
+    max-width: 100%;
+    overflow: auto;
+    padding: 1rem;
+    border: 1px solid black;
+
+    /* From: https://css-tricks.com/snippets/css/make-pre-text-wrap/ */
+    /* Browser specific (not valid) styles to make preformatted text wrap */
+    white-space: pre-wrap;       /* css-3 */
+    white-space: -moz-pre-wrap;  /* Mozilla, since 1999 */
+    white-space: -pre-wrap;      /* Opera 4-6 */
+    white-space: -o-pre-wrap;    /* Opera 7 */
+    word-wrap: break-word;       /* Internet Explorer 5.5+ */
+}
