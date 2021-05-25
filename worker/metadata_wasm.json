@@ -1,0 +1,15 @@
+{
+    "body_part": "script",
+    "bindings": [
+        {
+            "name": "wasm",
+            "type": "wasm_module",
+            "part": "wasmprogram"
+        },
+        {
+            "name": "PasteNS",
+            "type": "kv_namespace",
+            "namespace_id": "__id__"
+        }
+    ]
+}
