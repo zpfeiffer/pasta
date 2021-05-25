@@ -1,4 +1,5 @@
 use maud::{html, DOCTYPE, Markup};
+use crate::Paste;
 
 const STYLESHEET_PATH: &str = "style.css";
 // TODO: unpkg checksums
@@ -30,7 +31,7 @@ fn head(page_title: &str) -> Markup {
     }
 }
 
-pub fn index() -> Markup {
+pub(crate) fn index() -> Markup {
     page(
         "Pasta",
         html! {
@@ -66,6 +67,22 @@ pub fn index() -> Markup {
                     }
                 }
             }
+        }
+    )
+}
+
+pub(crate) fn paste(paste: Paste) -> Markup {
+    let title = paste.title.unwrap_or(format!("Paste {}", paste.id));
+    page(
+        &title,
+        html! {
+            h1 { (title) }
+            div class="pure-g" {
+                div class="pure-u-1-3" { p { "Thirds" } }
+                div class="pure-u-1-3" { p { "Thirds" } }
+                div class="pure-u-1-3" { p { "Thirds" } }
+            }
+            pre class="content" { (paste.content) }
         }
     )
 }

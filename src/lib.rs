@@ -164,6 +164,8 @@ impl Paste {
     }
 
     fn render_html(self) -> String {
+        templates::paste(self).into_string()
+        /*
         let title = self.title.unwrap_or(self.id);
         format!(
             "<html>
@@ -175,6 +177,7 @@ impl Paste {
             self.author,
             self.content
         )
+        */
     }
 }
 

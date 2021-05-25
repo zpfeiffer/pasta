@@ -3,7 +3,7 @@ type = "rust"
 
 account_id = ""
 workers_dev = true
-route = ""
+route = "pasta.example.com/paste*"
 zone_id = ""
 kv_namespaces = [
     { binding = "PasteNS", id = "", preview_id = "" }
