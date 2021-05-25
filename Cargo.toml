@@ -16,6 +16,8 @@ thiserror = "1.0.25"
 wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 js-sys = "0.3.51"
 arrayvec = "0.7.0"
+url = "2.2.2"
+maud = "0.22.2"
 wasm-bindgen-futures = "0.4.24"
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
@@ -37,6 +39,17 @@ serde_json = "1.0.64" # Somehow I just need this for the error type
 [dependencies.chrono]
 version = "0.4.19"
 features = ["wasmbind"]
+
+[dependencies.web-sys]
+version = "0.3.2"
+features = [
+  'FetchEvent',
+  'FormData',
+  'Headers',
+  'Request',
+  'ResponseInit',
+  "Response",
+]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.24"

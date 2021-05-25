@@ -1,19 +1,20 @@
 extern crate cfg_if;
 extern crate wasm_bindgen;
 
-//#[macro_use]
-//extern crate serde_derive;'
-
 mod utils;
+mod templates;
 
 use cfg_if::cfg_if;
 use thiserror::Error;
 use wasm_bindgen::{JsCast, JsValue, prelude::*};
 use js_sys::{Array, Error, Function, Promise, Reflect, JsString};
 use arrayvec::ArrayString;
+use url::{Url, ParseError as UrlParseError};
 // use std::time::SystemTime;
 use wasm_bindgen_futures::JsFuture;
 use serde::{Serialize, Deserialize};
+use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
+//use templates::index;
 
 // TODO: Use array buffers for keys instead of strings
 
@@ -42,21 +43,89 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub fn greet() -> String {
-    "Hello, wasm-worker!".to_string()
+pub async fn main(req: Request) -> Promise {
+    match render_main(req).await {
+        Ok(promise) => promise,
+        Err(e) => Promise::reject(&e.as_js_value())
+    }
 }
 
-fn render_paste_html(paste: Paste) -> String {
-    format!(
-        "<html>
-        <h1>{0}</h1>
-        <p>author: {1}</p>
-        <pre>{2}</pre>
-        </html>",
-        paste.title,
-        paste.author,
-        paste.content
-    )
+async fn render_main(req: Request) -> Result<Promise, RenderError> {
+    let url = Url::parse(&req.url())?;
+
+    // Note that `Url::path` returns a percent-encoded ASCII string
+    let path = url.path().to_ascii_lowercase();
+
+    let method = req.method();
+    match path.split("/").nth(1) {
+        Some("") => {
+            match method.as_ref() {
+                "GET" => {
+                    // let body = "<h1>hello!</h1>";
+                    let body = templates::index().into_string();
+                    let headers = Headers::new()?;
+                    headers.append("content-type", "text/html")?;
+                    let resp = generate_response(&body, 200, &headers)?;
+                    Ok(Promise::from(JsValue::from(resp)))
+                }
+                _ => todo!()
+            }
+        }
+        Some("paste") => {
+            match method.as_ref() {
+                "GET" => {
+                    render_paste(req).await
+                }
+                _ => todo!()
+            }
+        }
+        _ => {
+            todo!()
+        }
+    }
+}
+
+fn generate_response(body: &str, status: u16, headers: &Headers) -> Result<Response, JsValue> {
+    let mut init = ResponseInit::new();
+    init.status(status);
+    init.headers(&JsValue::from(headers));
+    Response::new_with_opt_str_and_init(Some(body), &init)
+}
+
+async fn render_paste(req: Request) -> Result<Promise, RenderError> {
+    let body = Paste::get("ABCDEFGH".to_string())
+        .await?
+        .render_html();
+    let headers = Headers::new()?;
+    headers.append("content-type", "text/html")?;
+    let resp = generate_response(&body, 200, &headers)?;
+    Ok(Promise::from(JsValue::from(resp)))
+}
+
+#[derive(Debug, Error)]
+enum RenderError {
+    #[error("url parse error: {0}")]
+    UrlParseError(#[from] UrlParseError),
+
+    #[error("js error: {0:?}")]
+    JsError(JsValue),
+
+    #[error("kv error: {0}")]
+    KvError(#[from] KvError)
+}
+
+impl From<JsValue> for RenderError {
+    #[inline]
+    fn from(value: JsValue) -> Self {
+        Self::JsError(value)
+    }
+}
+
+impl RenderError {
+    fn as_js_value(self) -> JsValue {
+        let error_string = self.to_string();
+        JsValue::from_str(error_string.as_str())
+    }
 }
 
 /* 
@@ -74,20 +143,17 @@ type PasteId = String;
 #[derive(Serialize, Deserialize, Debug)]
 struct Paste {
     id: PasteId,
-    title: String,
+    title: Option<String>,
     content: String,
     author: String,
 }
 
 impl Paste {
     async fn get(paste_id: PasteId) -> Result<Paste, KvError> {
-        let promise = PasteNs::get(paste_id.as_str(), "text");
+        let promise = PasteNs::get(paste_id.as_str(), "json");
         JsFuture::from(promise)
             .await
             .map_err(KvError::from)?
-            //.dyn_into::<JsString>(); // if this breaks try as_string which is slower but might work
-            // .as_string()
-            // .ok_or(KvError::ResultNotString)?
             .into_serde::<Paste>()
             .map_err(KvError::from)
     }
@@ -95,6 +161,20 @@ impl Paste {
     #[inline]
     fn id_str(&self) -> &str {
         self.id.as_str()
+    }
+
+    fn render_html(self) -> String {
+        let title = self.title.unwrap_or(self.id);
+        format!(
+            "<html>
+            <h1>{0}</h1>
+            <p>author: {1}</p>
+            <pre>{2}</pre>
+            </html>",
+            title,
+            self.author,
+            self.content
+        )
     }
 }
 
@@ -111,6 +191,7 @@ enum KvError {
 }
 
 impl From<JsValue> for KvError {
+    #[inline]
     fn from(value: JsValue) -> Self {
         Self::JsError(value)
     }
