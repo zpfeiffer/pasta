@@ -73,7 +73,8 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
             // TODO: Redirect to index
             todo!()
         }
-        (Some("paste"), None, "POST") => {
+        (Some("paste"), None, "POST")
+        | (Some("paste"), Some(""), "POST") => {
             // TODO: Create new paste
 
             let new = NewPaste::new(
