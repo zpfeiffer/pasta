@@ -1,14 +1,12 @@
-extern crate cfg_if;
-extern crate wasm_bindgen;
-
 mod utils;
 mod templates;
+mod kv;
 
 use cfg_if::cfg_if;
+use kv::put_paste_with_ttl;
 use thiserror::Error;
 use wasm_bindgen::{JsCast, JsValue, prelude::*};
 use js_sys::{Array, Error, Function, Promise, Reflect, JsString};
-use arrayvec::ArrayString;
 use url::{Url, ParseError as UrlParseError};
 // use std::time::SystemTime;
 use wasm_bindgen_futures::JsFuture;
@@ -17,6 +15,8 @@ use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
 //use templates::index;
 
 // TODO: Use array buffers for keys instead of strings
+
+pub(crate) const BASE_URL: &str = "pasta.zpfeiffer.com";
 
 cfg_if! {
     // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -35,8 +35,14 @@ extern "C" {
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn get(key: &str, data_type: &str) -> Promise;
 
-    #[wasm_bindgen(static_method_of = PasteNs)]
-    fn put(key: &str, val: &str) -> Promise;
+    // #[wasm_bindgen(static_method_of = PasteNs)]
+    // fn put(key: &str, val: &str) -> Promise;
+
+    //#[wasm_bindgen(static_method_of = PasteNs)]
+    //fn put(key: &str, val: &str, named: Option<&PasteNsPutConfig>) -> Promise;
+
+    //#[wasm_bindgen]
+    fn put_paste_ttl(key: &str, val: &str, ttl: u64) -> Promise;
 
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn delete(key: &str) -> Promise;
@@ -54,34 +60,41 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
     let url = Url::parse(&req.url())?;
 
     // Note that `Url::path` returns a percent-encoded ASCII string
-    let path = url.path().to_ascii_lowercase();
+    let path = url.path();
 
     let method = req.method();
-    match path.split("/").nth(1) {
-        Some("") => {
-            match method.as_ref() {
-                "GET" => {
-                    // let body = "<h1>hello!</h1>";
-                    let body = templates::index().into_string();
-                    let headers = Headers::new()?;
-                    headers.append("content-type", "text/html")?;
-                    let resp = generate_response(&body, 200, &headers)?;
-                    Ok(Promise::from(JsValue::from(resp)))
-                }
-                _ => todo!()
-            }
-        }
-        Some("paste") => {
-            match method.as_ref() {
-                "GET" => {
-                    render_paste(req).await
-                }
-                _ => todo!()
-            }
-        }
-        _ => {
+    let mut path_segments = path.split("/");
+    let first_segment = path_segments.nth(1);
+    let paste_id = path_segments.next();
+    match (first_segment, paste_id, method.as_ref()) {
+        (Some("paste"), None, "GET") => {
+            // TODO: Redirect to index
             todo!()
         }
+        (Some("paste"), None, "POST") => {
+            // TODO: Create new paste
+
+            let new = Paste {
+                id: "AAAAAAAA".to_string(),
+                title: Some("ahh".to_string()),
+                content: "nope".to_string(),
+                author: "hha".to_string(),
+                unlisted: true,
+            };
+            let (result, created) = put_paste_with_ttl("AAAAAAAA", new, 600).await?;
+            let body = templates::paste_created(created).into_string();
+            let headers = Headers::new()?;
+            headers.append("content-type", "text/html")?;
+            let resp = generate_response(&body, 201, &headers)?;
+            Ok(Promise::from(JsValue::from(resp)))
+        },
+        (Some("paste"), Some(requested_id), "GET") => {
+            // TODO: Get paste
+            render_paste(requested_id).await
+            //todo!()
+        },
+        (Some("paste"), _, _) => Err(RenderError::InvalidMethod),
+        (_, _, _) => Err(RenderError::RouteError),
     }
 }
 
@@ -92,14 +105,28 @@ fn generate_response(body: &str, status: u16, headers: &Headers) -> Result<Respo
     Response::new_with_opt_str_and_init(Some(body), &init)
 }
 
-async fn render_paste(req: Request) -> Result<Promise, RenderError> {
-    let body = Paste::get("ABCDEFGH".to_string())
-        .await?
-        .render_html();
+async fn render_paste(requested_id: &str) -> Result<Promise, RenderError> {
+    // Retrieve paste asynchronously from KV
+    let paste = Paste::get(requested_id);
+
+    // Construct the rest of the response
     let headers = Headers::new()?;
     headers.append("content-type", "text/html")?;
-    let resp = generate_response(&body, 200, &headers)?;
+    let mut resp_init = ResponseInit::new();
+    resp_init.status(200);
+    resp_init.headers(&JsValue::from(headers));
+
+    // Block until paste has been retrieved and parsed before rendering
+    // the HTML and finalizing the response object.
+    let body = paste.await?.render_html();
+    let resp = Response::new_with_opt_str_and_init(Some(&body), &resp_init)?;
     Ok(Promise::from(JsValue::from(resp)))
+}
+
+/// Creates a new paste with a randomly assigned ID and returns a Promise for
+/// a response.
+async fn create_paste() -> Result<Promise, RenderError> {
+    todo!()
 }
 
 #[derive(Debug, Error)]
@@ -111,7 +138,13 @@ enum RenderError {
     JsError(JsValue),
 
     #[error("kv error: {0}")]
-    KvError(#[from] KvError)
+    KvError(#[from] KvError),
+
+    #[error("route error: this worker should not have received this request")]
+    RouteError,
+
+    #[error("invalid method")]
+    InvalidMethod,
 }
 
 impl From<JsValue> for RenderError {
@@ -137,54 +170,48 @@ impl RenderError {
  * Content TBD possibly Refresh header or HTML redirect or JS redirect to new resource
  */
 
-//type PasteId = ArrayString::<8>;
-type PasteId = String;
-
 #[derive(Serialize, Deserialize, Debug)]
-struct Paste {
-    id: PasteId,
+pub(crate) struct Paste {
+    id: String,
     title: Option<String>,
     content: String,
     author: String,
+    unlisted: bool,
 }
 
 impl Paste {
-    async fn get(paste_id: PasteId) -> Result<Paste, KvError> {
-        let promise = PasteNs::get(paste_id.as_str(), "json");
-        JsFuture::from(promise)
+    async fn get(paste_id: &str) -> Result<Paste, KvError> {
+        let promise = PasteNs::get(paste_id, "json");
+        let retrieved = JsFuture::from(promise)
             .await
-            .map_err(KvError::from)?
-            .into_serde::<Paste>()
-            .map_err(KvError::from)
-    }
-
-    #[inline]
-    fn id_str(&self) -> &str {
-        self.id.as_str()
+            .map_err(KvError::from)?;
+        if !retrieved.is_null() {
+            retrieved.into_serde::<Paste>().map_err(KvError::from)
+        } else {
+            Err(KvError::NotFound)
+        }
     }
 
     fn render_html(self) -> String {
         templates::paste(self).into_string()
-        /*
-        let title = self.title.unwrap_or(self.id);
-        format!(
-            "<html>
-            <h1>{0}</h1>
-            <p>author: {1}</p>
-            <pre>{2}</pre>
-            </html>",
-            title,
-            self.author,
-            self.content
-        )
-        */
+    }
+
+    #[inline]
+    fn get_path(&self) -> String {
+        format!("/paste/{}", self.id)
     }
 }
 
 #[derive(Debug, Error)]
-enum KvError {
+pub(crate) enum KvError {
     #[error("js error: {0:?}")]
     JsError(JsValue),
+
+    /// Key was not found in namespace.
+    ///
+    /// Constructed when the KV namespace returns a null JsValue
+    #[error("key not found")]
+    NotFound,
 
     // #[error("expected kv get result to be a string")]
     // ResultNotString,
