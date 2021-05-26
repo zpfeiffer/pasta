@@ -1,5 +1,5 @@
 use maud::{html, DOCTYPE, Markup};
-use crate::{Paste, BASE_URL};
+use crate::{BASE_URL, kv::StoredPaste};
 
 const STYLESHEET_PATH: &str = "style.css";
 // TODO: unpkg checksums
@@ -25,8 +25,8 @@ fn page(page_title: &str, body_content: Markup) -> Markup {
     }
 }
 
-pub(crate) fn paste(paste: Paste) -> Markup {
-    let title = paste.title.unwrap_or(format!("Paste {}", paste.id));
+pub(crate) fn paste(paste: StoredPaste) -> Markup {
+    let title = paste.get_title();
     page(
         &title,
         html! {
@@ -41,9 +41,9 @@ pub(crate) fn paste(paste: Paste) -> Markup {
     )
 }
 
-pub(crate) fn paste_created(paste: Paste) -> Markup {
-    let path = paste.get_path();
-    let name = paste.title.unwrap_or(format!("Paste {}", paste.id));
+pub(crate) fn paste_created(paste: StoredPaste, id: &str) -> Markup {
+    let path = format!("/paste/{}", id);
+    let name = paste.get_title();
     page(
         &name,
         html! {
