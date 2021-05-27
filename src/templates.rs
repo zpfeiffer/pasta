@@ -59,7 +59,7 @@ pub(crate) fn paste_created(paste: StoredPaste, path: &str) -> Markup {
     page(
         &name,
         html! {
-            h1 { (name) "created!" }
+            h1 { (name) " created!" }
             p {
                 "Your paste can be accessed at "
                 a href=(path) {
