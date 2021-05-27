@@ -37,15 +37,6 @@ extern "C" {
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn get(key: &str, data_type: &str) -> Promise;
 
-    // #[wasm_bindgen(static_method_of = PasteNs)]
-    // fn put(key: &str, val: &str) -> Promise;
-
-    //#[wasm_bindgen(static_method_of = PasteNs)]
-    //fn put(key: &str, val: &str, named: Option<&PasteNsPutConfig>) -> Promise;
-
-    //#[wasm_bindgen]
-    //fn put_paste_ttl(key: &str, val: &str, ttl: u64) -> Promise;
-
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn delete(key: &str) -> Promise;
 }
@@ -55,8 +46,12 @@ pub async fn main(req: Request) -> Promise {
     utils::set_panic_hook();
     match render_main(req).await {
         Ok(promise) => promise,
+        Err(RenderError::ContentTypeError) => error_response::<400>(RenderError::ContentTypeError),
+        Err(RenderError::InvalidMethod) => todo!(),
+        Err(RenderError::NonexistentResource) => todo!(),
+        Err(RenderError::InvalidExpiration) => error_response::<400>(RenderError::InvalidExpiration),
+        Err(RenderError::MissingFormValue) => error_response::<400>(RenderError::MissingFormValue),
         Err(e) => Promise::reject(&e.as_js_value())
-        // TODO: Redirect based on some error values
     }
 }
 
@@ -104,8 +99,6 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
             Ok(Promise::from(JsValue::from(resp)))
         }
         (None, HttpMethod::Post) => {
-            // TODO: use multipart/form data
-            // TODO: should I use jsfuture/promise .then here?
             let content_type = req.headers().get("content-type")?;
             if content_type.as_deref() != Some("application/x-www-form-urlencoded") {
                 return Err(RenderError::ContentTypeError);
@@ -125,6 +118,29 @@ fn generate_response(body: &str, status: u16, headers: &Headers) -> Result<Respo
     init.status(status);
     init.headers(&JsValue::from(headers));
     Response::new_with_opt_str_and_init(Some(body), &init)
+}
+
+/// Returns a `Promise` for a `Response` `JsValue` with the status set to
+/// `STATUS`, the `content-type` header set to `text/html` and body set to
+/// `error.to_string()`.
+fn error_response<const STATUS: u16>(error: RenderError) -> Promise {
+    fn inner<const STATUS: u16>(error: RenderError) -> Result<Promise, RenderError> {
+        let headers = Headers::new()?;
+        headers.append("content-type", "text/html")?;
+
+        let mut init = ResponseInit::new();
+        init.status(STATUS);
+        init.headers(&JsValue::from(headers));
+
+        let body = error.to_string();
+
+        let resp = Response::new_with_opt_str_and_init(Some(&body), &init)?;
+        Ok(Promise::from(JsValue::from(resp)))
+    }
+    match inner::<STATUS>(error) {
+        Ok(promise) => promise,
+        Err(e) => Promise::reject(&e.as_js_value())
+    }
 }
 
 async fn render_paste(requested_id_str: &str) -> Result<Promise, RenderError> {
