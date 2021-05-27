@@ -1,5 +1,5 @@
 use maud::{html, DOCTYPE, Markup};
-use crate::{BASE_URL, kv::StoredPaste};
+use crate::{BASE_DOMAIN, kv::StoredPaste};
 
 const STYLESHEET_PATH: &str = "style.css";
 // TODO: unpkg checksums
@@ -63,7 +63,7 @@ pub(crate) fn paste_created(paste: StoredPaste, path: &str) -> Markup {
             p {
                 "Your paste can be accessed at "
                 a href=(path) {
-                    (BASE_URL)
+                    (BASE_DOMAIN)
                     (path)
                 }
             }

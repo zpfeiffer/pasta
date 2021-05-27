@@ -17,7 +17,8 @@ use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
 
 // TODO: Use array buffers for keys instead of strings
 
-pub(crate) const BASE_URL: &str = "pasta.zpfeiffer.com";
+pub(crate) const BASE_DOMAIN: &str = "pasta.zpfeiffer.com";
+pub(crate) const BASE_URL: &str = "https://pasta.zpfeiffer.com";
 
 cfg_if! {
     // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -98,8 +99,9 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
 
     match (paste_id, method) {
         (None, HttpMethod::Get) => {
-            // TODO: Redirect to index
-            todo!()
+            // Redirect to index
+            let resp = Response::redirect_with_status(BASE_URL, 301)?;
+            Ok(Promise::from(JsValue::from(resp)))
         }
         (None, HttpMethod::Post) => {
             // TODO: use multipart/form data
