@@ -14,23 +14,23 @@
         <form class="pure-form pure-form-stacked" method="POST" action="/paste">
             <fieldset>
                 <legend>Create new paste</legend>
-                <input type="text" class="pure-input-1" placeholder="Paste title (optional)" />
-                <textarea class="pure-input-1" placeholder="Paste here..." required=""></textarea>
+                <input type="text" id="paste-title" class="pure-input-1" placeholder="Paste title (optional)" />
+                <textarea id="paste-content" class="pure-input-1" placeholder="Paste here..." required=""></textarea>
                 <!--<span class="pure-form-message required-field-message">This is a required field.</span>-->
             </fieldset>
             <fieldset class="options">
                 <div class="pure-g">
                     <div class="pure-u-1 pure-u-md-1-3">
-                        <label for="stacked-expiration">Expiration</label>
-                        <select id="stacked-expiration" class="pure-u-23-24" required>
+                        <label for="expiration">Expiration</label>
+                        <select id="expiration" class="pure-u-23-24" required>
                             <option>1 hour</option>
                             <option>24 hours</option>
                             <option>Never</option>
                         </select>
                     </div>
                     <div class="pure-u-1 pure-u-md-1-3">
-                        <label for="stacked-privacy">Privacy</label>
-                        <select id="stacked-privacy" class="pure-u-23-24" required>
+                        <label for="privacy">Privacy</label>
+                        <select id="privacy" class="pure-u-23-24" required>
                             <option>Public</option>
                             <option>Unlisted</option>
                         </select>

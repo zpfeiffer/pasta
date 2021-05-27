@@ -54,8 +54,7 @@ pub(crate) fn paste(paste: StoredPaste) -> Markup {
     )
 }
 
-pub(crate) fn paste_created(paste: StoredPaste, id: &str) -> Markup {
-    let path = format!("/paste/{}", id);
+pub(crate) fn paste_created(paste: StoredPaste, path: &str) -> Markup {
     let name = paste.get_title();
     page(
         &name,

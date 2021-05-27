@@ -143,6 +143,7 @@ pub struct NewPaste {
 
 impl NewPaste {
     // TODO: Maybe a builder type? Async?
+    #[inline]
     pub fn new(
         title: Option<String>,
         content: String,
@@ -155,7 +156,7 @@ impl NewPaste {
         NewPaste { id, title, content, author, unlisted, ttl }
     }
 
-    pub async fn put(self) -> Result<(StoredPaste, Uuid), KvError> {
+    pub async fn put(self) -> Result<(StoredPaste, String), KvError> {
         let ttl = if let Some(ttl) = self.ttl {
             if ttl < 60 {
                 Err(KvError::UnsupportedTtl(ttl))
@@ -187,12 +188,23 @@ impl NewPaste {
 
 
         // Insert into KV.
+        let promise = PasteNs::put(&id_str, &paste_json, ttl);
+        let future = JsFuture::from(promise);
+
+        // While we wait on the put operation, create a string for the path
+        let path = format!("/paste/{}", id_str);
+
         // We must await on the promise to ensure it's inserted but we can
         // discard the (`undefined`) result.
-        let promise = PasteNs::put(&id_str, &paste_json, ttl);
-        JsFuture::from(promise).await?;
+        future.await?;
 
-        Ok((stored, id))
+        Ok((stored, path))
+    }
+
+    #[inline]
+    pub fn simple_id_string(&self) -> String {
+        let mut buf = Uuid::encode_buffer();
+        self.id.to_simple_ref().encode_lower(&mut buf).to_string()
     }
 
     fn prepare(self) -> StoredPaste {
