@@ -102,16 +102,17 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
             todo!()
         }
         (None, HttpMethod::Post) => {
-            // FIXME: JsValue error when req has content type incompatible w/ form data
             // TODO: use multipart/form data
             // TODO: should I use jsfuture/promise .then here?
+            let content_type = req.headers().get("content-type")?;
+            if content_type.as_deref() != Some("application/x-www-form-urlencoded") {
+                return Err(RenderError::ContentTypeError);
+            }
             let form_data = FormData::from(JsFuture::from(req.form_data()?).await?);
             create_paste(form_data).await
         },
         (Some(requested_id), HttpMethod::Get) => {
-            // TODO: Get paste
             render_paste(requested_id).await
-            //todo!()
         },
         (_, _) => Err(RenderError::InvalidMethod),
     }
@@ -221,6 +222,9 @@ enum RenderError {
 
     #[error("submitted form missing values")]
     MissingFormValue,
+
+    #[error("the request's content-type field was missing or invalid")]
+    ContentTypeError,
 }
 
 impl From<JsValue> for RenderError {
