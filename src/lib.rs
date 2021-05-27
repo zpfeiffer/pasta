@@ -191,7 +191,7 @@ async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
     let headers = Headers::new()?;
     headers.append("content-type", "text/html")?;
     let mut resp_init = ResponseInit::new();
-    resp_init.status(200);
+    resp_init.status(201);
     resp_init.headers(&JsValue::from(headers));
 
     let (stored_paste, path) = put_future.await?;
