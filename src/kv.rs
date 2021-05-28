@@ -95,17 +95,24 @@ impl StoredPaste {
         }
     }
 
-    async fn get(uuid: Uuid) -> Result<StoredPaste, KvError> {
+    async fn get(uuid: Uuid) -> Result<Option<StoredPaste>, KvError> {
         let mut buf = Uuid::encode_buffer();
         let key = uuid.to_simple_ref().encode_lower(&mut buf);
         StoredPaste::get_from_exact_key(key).await
     }
 
-    pub async fn get_from_uuid_str(uuid_str: &str) -> Result<StoredPaste, KvError> {
-        StoredPaste::get(Uuid::parse_str(uuid_str)?).await
+    pub async fn get_from_uuid_str(
+        uuid_str: &str
+    ) -> Result<Option<StoredPaste>, KvError> {
+        // If the input `uuid_str` cannot be parsed as a UUID, we're
+        // done here as it must not exist. Otherwise, call `StoredPaste::get`.
+        match Uuid::parse_str(uuid_str) {
+            Ok(uuid) => StoredPaste::get(uuid).await,
+            Err(_e) => Ok(None)
+        }
     }
 
-    async fn get_from_exact_key(key: &str) -> Result<StoredPaste, KvError> {
+    async fn get_from_exact_key(key: &str) -> Result<Option<StoredPaste>, KvError> {
         let promise = PasteNs::get(key, "json");
         let retrieved = JsFuture::from(promise)
             .await
@@ -118,9 +125,11 @@ impl StoredPaste {
             // converion with the "json" type set:
             // https://developers.cloudflare.com/workers/runtime-apis/kv#reading-key-value-pairs
             // so there could be better way to do this
-            retrieved.into_serde::<StoredPaste>().map_err(KvError::from)
+            retrieved.into_serde::<StoredPaste>()
+                .map(|stored_paste| Some(stored_paste))
+                .map_err(KvError::from)
         } else {
-            Err(KvError::NotFound)
+            Ok(None)
         }
     }
 

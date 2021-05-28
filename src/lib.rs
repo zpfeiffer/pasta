@@ -15,7 +15,7 @@ use serde::{Serialize, Deserialize};
 use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
 //use templates::index;
 
-// TODO: Use array buffers for keys instead of strings
+// TODO: Set http cache to expiration
 
 pub(crate) const BASE_DOMAIN: &str = "pasta.zpfeiffer.com";
 pub(crate) const BASE_URL: &str = "https://pasta.zpfeiffer.com";
@@ -145,19 +145,35 @@ fn error_response<const STATUS: u16>(error: RenderError) -> Promise {
 
 async fn render_paste(requested_id_str: &str) -> Result<Promise, RenderError> {
     // Retrieve paste asynchronously from KV
-    let paste = StoredPaste::get_from_uuid_str(requested_id_str);
+    let paste_result = StoredPaste::get_from_uuid_str(requested_id_str);
 
     // Construct the rest of the response
     let headers = Headers::new()?;
     headers.append("content-type", "text/html")?;
     let mut resp_init = ResponseInit::new();
-    resp_init.status(200);
-    resp_init.headers(&JsValue::from(headers));
 
     // Block until paste has been retrieved and parsed before rendering
     // the HTML and finalizing the response object.
-    let body = paste.await?.render_html();
-    let resp = Response::new_with_opt_str_and_init(Some(&body), &resp_init)?;
+    let resp = if let Some(paste) = paste_result.await? {
+        if let Some(exp) = paste.exp {
+            headers.append("Expires", &exp.to_rfc2822())?;
+            headers.append("Cache-Control", "public")?;
+            headers.append("Cache-Control", "immutable")?;
+        } else {
+            // Because these are Uuid v4s, if its not found its going to be
+            // not found for the forseable future, right?
+            // headers.append("Cache-Control", "immutable");
+        }
+        resp_init.headers(&JsValue::from(headers));
+        resp_init.status(200);
+        let body = paste.render_html();
+        Response::new_with_opt_str_and_init(Some(&body), &resp_init)?
+    } else {
+        resp_init.headers(&JsValue::from(headers));
+        resp_init.status(404);
+        let body = include_str!("../public/404.html");
+        Response::new_with_opt_str_and_init(Some(body), &resp_init)?
+    };
     Ok(Promise::from(JsValue::from(resp)))
 }
 
@@ -199,6 +215,18 @@ async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
     let resp = Response::new_with_opt_str_and_init(Some(&html), &resp_init)?;
     Ok(Promise::from(JsValue::from(resp)))
 }
+
+/*
+fn not_found() -> Result<Promise, RenderError> {
+    let html = include_str!("public/404.html");
+    let headers = Headers::new()?;
+    headers.append("content-type", "text/html")?;
+    let mut init = ResponseInit::new();
+    init.status(status);
+    init.headers(&JsValue::from(headers));
+    Ok(Response::new_with_opt_str_and_init(Some(body), &init))
+}
+*/
 
 // TODO: Match render errors to HTTP status codes where appropriate:
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
