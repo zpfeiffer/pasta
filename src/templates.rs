@@ -8,8 +8,8 @@ const PURECSS_GRIDS_PATH: &str = "https://unpkg.com/purecss@2.0.3/build/grids-re
 
 fn page(page_title: &str, body_content: Markup) -> Markup {
     html! {
+        (DOCTYPE)
         html lang="en" {
-            (DOCTYPE)
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
