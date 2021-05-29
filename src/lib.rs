@@ -17,6 +17,7 @@ use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
 
 pub(crate) const BASE_DOMAIN: &str = "pasta.zpfeiffer.com";
 pub(crate) const BASE_URL: &str = "https://pasta.zpfeiffer.com";
+pub(crate) const ALLOW_NEVER_EXPIRE: bool = false;
 
 cfg_if! {
     // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -191,7 +192,7 @@ async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
     let ttl = match form.get("expiration").as_string().as_deref() {
         Some("1 hour") => Ok(Some(3600u32)),
         Some("24 hours") => Ok(Some(86400)),
-        Some("Never") => Ok(None),
+        Some("Never") if ALLOW_NEVER_EXPIRE => Ok(None),
         Some(_) => Err(RenderError::InvalidExpiration),
         None => Err(RenderError::MissingFormValue),
     }?;
