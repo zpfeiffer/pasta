@@ -1,15 +1,3 @@
-function put_paste_ttl(key, val, ttl) {
-  return PasteNS.put(key, value, { expirationTtl: ttl });
-}
-
-function test1(obj) {
-  console.log(obj)
-}
-
-function test2(obj) {
-  console.log(obj)
-}
-
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request))
 })

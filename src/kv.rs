@@ -18,9 +18,6 @@ extern "C" {
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn put(key: &str, val: &str, obj: Object) -> Promise;
 
-    #[wasm_bindgen]
-    fn put_paste_ttl(key: &str, val: &str, ttl: u64) -> Promise;
-
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn delete(key: &str) -> Promise;
 
@@ -61,13 +58,6 @@ impl From<JsValue> for KvError {
 
 // TODO: Could use an arraybuf for content as KV value then store the
 // metadata in metadata
-
-
-#[wasm_bindgen]
-extern {
-    fn test1(x: JsValue);
-    fn test2(x: Object);
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StoredPaste {
@@ -136,8 +126,6 @@ impl StoredPaste {
     pub fn render_html(self) -> String {
         templates::paste(self).into_string()
     }
-
-    // `get` and `put` implementations are in `kv.rs`
 }
 
 #[derive(Serialize, Deserialize, Debug)]
