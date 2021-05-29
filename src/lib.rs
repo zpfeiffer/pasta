@@ -184,7 +184,10 @@ async fn render_paste(requested_id_str: &str) -> Result<Promise, RenderError> {
 /// a response.
 async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
     // TODO: See if we can avoid copying into linear memory just to check string equality
-    let title: Option<String>  = form.get("paste-title").as_string();
+    let title = match form.get("paste-title").as_string() {
+        Some(string) if string == "" => None,
+        other => other,
+    };
     let author: Option<String> = form.get("paste-author").as_string();
     let content = form.get("paste-content")
         .as_string()
