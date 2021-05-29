@@ -9,11 +9,9 @@ use uuid::Uuid;
 use wasm_bindgen::{JsCast, JsValue, prelude::*};
 use js_sys::{Array, Error, Function, Promise, Reflect, JsString};
 use url::{Url, ParseError as UrlParseError};
-// use std::time::SystemTime;
 use wasm_bindgen_futures::JsFuture;
 use serde::{Serialize, Deserialize};
 use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
-//use templates::index;
 
 // TODO: Set http cache to expiration
 
@@ -48,7 +46,7 @@ pub async fn main(req: Request) -> Promise {
         Ok(promise) => promise,
         Err(RenderError::ContentTypeError) => error_response::<400>(RenderError::ContentTypeError),
         Err(RenderError::InvalidMethod) => todo!(),
-        Err(RenderError::NonexistentResource) => todo!(),
+        Err(RenderError::NonexistentResource) => ok_or_reject(not_found()),
         Err(RenderError::InvalidExpiration) => error_response::<400>(RenderError::InvalidExpiration),
         Err(RenderError::MissingFormValue) => error_response::<400>(RenderError::MissingFormValue),
         Err(e) => Promise::reject(&e.as_js_value())
@@ -137,7 +135,11 @@ fn error_response<const STATUS: u16>(error: RenderError) -> Promise {
         let resp = Response::new_with_opt_str_and_init(Some(&body), &init)?;
         Ok(Promise::from(JsValue::from(resp)))
     }
-    match inner::<STATUS>(error) {
+    ok_or_reject(inner::<STATUS>(error))
+}
+
+fn ok_or_reject(result: Result<Promise, RenderError>) -> Promise {
+    match result {
         Ok(promise) => promise,
         Err(e) => Promise::reject(&e.as_js_value())
     }
@@ -200,33 +202,28 @@ async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
         None => Err(RenderError::MissingFormValue),
     }?;
     let new_paste = NewPaste::new(title, content, author, unlisted, ttl);
-    //let (stored_paste, path) = new_paste.put().await?;
     let put_future = new_paste.put();
 
-    // Construct the rest of the response
-    let headers = Headers::new()?;
-    headers.append("content-type", "text/html")?;
-    let mut resp_init = ResponseInit::new();
-    resp_init.status(201);
-    resp_init.headers(&JsValue::from(headers));
-
     let (stored_paste, path) = put_future.await?;
-    let html = templates::paste_created(stored_paste, &path).into_string();
-    let resp = Response::new_with_opt_str_and_init(Some(&html), &resp_init)?;
+    let mut url = String::with_capacity(BASE_URL.len() + 7 + 32);
+    url.push_str(BASE_URL);
+    url.push_str(&path);
+
+    // Construct the  response
+    let resp = Response::redirect_with_status(&url, 303)?;
     Ok(Promise::from(JsValue::from(resp)))
 }
 
-/*
 fn not_found() -> Result<Promise, RenderError> {
-    let html = include_str!("public/404.html");
+    let html = include_str!("../public/404.html");
     let headers = Headers::new()?;
     headers.append("content-type", "text/html")?;
     let mut init = ResponseInit::new();
-    init.status(status);
+    init.status(404);
     init.headers(&JsValue::from(headers));
-    Ok(Response::new_with_opt_str_and_init(Some(body), &init))
+    let resp = Response::new_with_opt_str_and_init(Some(html), &init)?;
+    Ok(Promise::from(JsValue::from(resp)))
 }
-*/
 
 // TODO: Match render errors to HTTP status codes where appropriate:
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
