@@ -5,8 +5,9 @@ use wasm_bindgen_futures::JsFuture;
 use thiserror::Error;
 use chrono::{Duration, prelude::*};
 use uuid::Uuid;
+use web_sys::FormData;
 
-use crate::{templates};
+use crate::{ALLOW_NEVER_EXPIRE, ResponseError, templates};
 
 #[wasm_bindgen]
 extern "C" {
@@ -18,11 +19,11 @@ extern "C" {
     #[wasm_bindgen(static_method_of = PasteNs)]
     fn put(key: &str, val: &str, obj: Object) -> Promise;
 
-    #[wasm_bindgen(static_method_of = PasteNs)]
-    fn delete(key: &str) -> Promise;
+    // #[wasm_bindgen(static_method_of = PasteNs)]
+    // fn delete(key: &str) -> Promise;
 
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
+    // #[wasm_bindgen(js_namespace = console)]
+    // fn log(s: &str);
 }
 
 #[derive(Debug, Error)]
@@ -103,23 +104,16 @@ impl StoredPaste {
     }
 
     async fn get_from_exact_key(key: &str) -> Result<Option<StoredPaste>, KvError> {
-        let promise = PasteNs::get(key, "json");
+        let promise = PasteNs::get(key, "text");
         let retrieved = JsFuture::from(promise)
             .await
-            .map_err(KvError::from)?;
-        if !retrieved.is_null() {
-            // FIXME: I'm honestly not sure how the JSON.stringify invocation
-            // in `into_serde` isn't breaking this. Shouldn't `retrieved`
-            // already be a JSON string? Seems wasteful either way.
-            // Actually it looks like Cloudflare will do the JSON -> JS object
-            // converion with the "json" type set:
-            // https://developers.cloudflare.com/workers/runtime-apis/kv#reading-key-value-pairs
-            // so there could be better way to do this
-            retrieved.into_serde::<StoredPaste>()
+            .map_err(KvError::from)?
+            .as_string();
+        match retrieved.as_deref() {
+            Some(string) => serde_json::from_str(string)
                 .map(|stored_paste| Some(stored_paste))
-                .map_err(KvError::from)
-        } else {
-            Ok(None)
+                .map_err(KvError::from),
+            None => Ok(None)
         }
     }
 
@@ -153,7 +147,36 @@ impl NewPaste {
         NewPaste { id, title, content, author, unlisted, ttl }
     }
 
-    pub async fn put(self) -> Result<(StoredPaste, String), KvError> {
+    pub(crate) fn from_form_data(
+        form: FormData
+    ) -> Result<NewPaste, ResponseError> {
+        // TODO: See if we can avoid copying into linear memory just to check string equality
+        let title = match form.get("paste-title").as_string() {
+            Some(string) if string == "" => None,
+            other => other,
+        };
+        let author: Option<String> = form.get("paste-author").as_string();
+        let content = form.get("paste-content")
+            .as_string()
+            .ok_or(ResponseError::MissingFormValue)?;
+        let ttl = match form.get("expiration").as_string().as_deref() {
+            Some("1 hour") => Ok(Some(3600u32)),
+            Some("24 hours") => Ok(Some(86400)),
+            Some("Never") if ALLOW_NEVER_EXPIRE => Ok(None),
+            Some(_) => Err(ResponseError::InvalidExpiration),
+            None => Err(ResponseError::MissingFormValue),
+        }?;
+        let unlisted = match form.get("privacy").as_string().as_deref() {
+            Some("Public") => Ok(false),
+            Some("Unlisted") => Ok(true),
+            Some(_) => Err(ResponseError::InvalidExpiration),
+            None => Err(ResponseError::MissingFormValue),
+        }?;
+        let id = Uuid::new_v4();
+        Ok(NewPaste { id, title, content, author, unlisted, ttl })
+    }
+
+    pub async fn put(self) -> Result<String, KvError> {
         let ttl = if let Some(ttl) = self.ttl {
             if ttl < 60 {
                 Err(KvError::UnsupportedTtl(ttl))
@@ -172,14 +195,13 @@ impl NewPaste {
                 }
             }
         } else {
-            //Ok(JsValue::null())
             Ok(js_sys::Object::new())
         }?;
 
         let id = self.id;
-        let stored = self.prepare();
+        let prepared = self.prepare();
 
-        let paste_json = serde_json::to_string(&stored)?;
+        let paste_json = serde_json::to_string(&prepared)?;
         let mut id_str_buf = Uuid::encode_buffer();
         let id_str = id.to_simple_ref().encode_lower(&mut id_str_buf);
 
@@ -195,13 +217,7 @@ impl NewPaste {
         // discard the (`undefined`) result.
         future.await?;
 
-        Ok((stored, path))
-    }
-
-    #[inline]
-    pub fn simple_id_string(&self) -> String {
-        let mut buf = Uuid::encode_buffer();
-        self.id.to_simple_ref().encode_lower(&mut buf).to_string()
+        Ok(path)
     }
 
     fn prepare(self) -> StoredPaste {

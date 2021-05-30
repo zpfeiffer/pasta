@@ -30,39 +30,28 @@ cfg_if! {
 }
 
 #[wasm_bindgen]
-extern "C" {
-    type PasteNs;
-
-    #[wasm_bindgen(static_method_of = PasteNs)]
-    fn get(key: &str, data_type: &str) -> Promise;
-
-    #[wasm_bindgen(static_method_of = PasteNs)]
-    fn delete(key: &str) -> Promise;
-}
-
-#[wasm_bindgen]
 pub async fn main(req: Request) -> Promise {
     utils::set_panic_hook();
-    match render_main(req).await {
+    match handle_request(req).await {
         Ok(promise) => promise,
-        Err(RenderError::ContentTypeError) => error_response::<400>(RenderError::ContentTypeError),
-        Err(RenderError::InvalidMethod) => todo!(),
-        Err(RenderError::NonexistentResource) => ok_or_reject(not_found()),
-        Err(RenderError::InvalidExpiration) => error_response::<400>(RenderError::InvalidExpiration),
-        Err(RenderError::MissingFormValue) => error_response::<400>(RenderError::MissingFormValue),
+        Err(ResponseError::ContentTypeError) => error_response::<400>(ResponseError::ContentTypeError),
+        Err(ResponseError::InvalidMethod) => todo!(),
+        Err(ResponseError::NonexistentResource) => not_found().ok_or_reject(),
+        Err(ResponseError::InvalidExpiration) => error_response::<400>(ResponseError::InvalidExpiration),
+        Err(ResponseError::MissingFormValue) => error_response::<400>(ResponseError::MissingFormValue),
         Err(e) => Promise::reject(&e.as_js_value())
     }
 }
 
-async fn render_main(req: Request) -> Result<Promise, RenderError> {
+async fn handle_request(req: Request) -> Result<Promise, ResponseError> {
     let url = Url::parse(&req.url())?;
 
     let mut path_segments = url.path_segments()
-        .ok_or(RenderError::PathNotUnderstood)?;
+        .ok_or(ResponseError::PathNotUnderstood)?;
 
     let first_segment = path_segments.next();
     if first_segment != Some("paste") {
-        return Err(RenderError::RouteError);
+        return Err(ResponseError::RouteError);
     }
 
     // Get paste ID from next path segment. If the next value is `Some("")`,
@@ -77,18 +66,18 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
     // (trailing `/`s are permitted). If not, this request must be
     // for a resource this worker can not serve.
     if !matches!(path_segments.next(), Some("") | None) {
-        return Err(RenderError::NonexistentResource);
+        return Err(ResponseError::NonexistentResource);
     }
 
-    let method_str = req.method();
     enum HttpMethod {
         Post,
         Get,
     }
+    let method_str = req.method();
     let method = match method_str.as_ref() {
         "GET" => Ok(HttpMethod::Get),
         "POST" => Ok(HttpMethod::Post),
-        _ => Err(RenderError::InvalidMethod)
+        _ => Err(ResponseError::InvalidMethod)
     }?;
 
     match (paste_id, method) {
@@ -100,7 +89,7 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
         (None, HttpMethod::Post) => {
             let content_type = req.headers().get("content-type")?;
             if content_type.as_deref() != Some("application/x-www-form-urlencoded") {
-                return Err(RenderError::ContentTypeError);
+                return Err(ResponseError::ContentTypeError);
             }
             let form_data = FormData::from(JsFuture::from(req.form_data()?).await?);
             create_paste(form_data).await
@@ -108,7 +97,7 @@ async fn render_main(req: Request) -> Result<Promise, RenderError> {
         (Some(requested_id), HttpMethod::Get) => {
             render_paste(requested_id).await
         },
-        (_, _) => Err(RenderError::InvalidMethod),
+        (_, _) => Err(ResponseError::InvalidMethod),
     }
 }
 
@@ -122,8 +111,8 @@ fn generate_response(body: &str, status: u16, headers: &Headers) -> Result<Respo
 /// Returns a `Promise` for a `Response` `JsValue` with the status set to
 /// `STATUS`, the `content-type` header set to `text/html` and body set to
 /// `error.to_string()`.
-fn error_response<const STATUS: u16>(error: RenderError) -> Promise {
-    fn inner<const STATUS: u16>(error: RenderError) -> Result<Promise, RenderError> {
+fn error_response<const STATUS: u16>(error: ResponseError) -> Promise {
+    fn inner<const STATUS: u16>(error: ResponseError) -> Result<Promise, ResponseError> {
         let headers = Headers::new()?;
         headers.append("content-type", "text/html")?;
 
@@ -139,14 +128,14 @@ fn error_response<const STATUS: u16>(error: RenderError) -> Promise {
     ok_or_reject(inner::<STATUS>(error))
 }
 
-fn ok_or_reject(result: Result<Promise, RenderError>) -> Promise {
+fn ok_or_reject(result: Result<Promise, ResponseError>) -> Promise {
     match result {
         Ok(promise) => promise,
         Err(e) => Promise::reject(&e.as_js_value())
     }
 }
 
-async fn render_paste(requested_id_str: &str) -> Result<Promise, RenderError> {
+async fn render_paste(requested_id_str: &str) -> Result<Promise, ResponseError> {
     // Retrieve paste asynchronously from KV
     let paste_result = StoredPaste::get_from_uuid_str(requested_id_str);
 
@@ -182,35 +171,13 @@ async fn render_paste(requested_id_str: &str) -> Result<Promise, RenderError> {
 
 /// Creates a new paste with a randomly assigned ID and returns a Promise for
 /// a response.
-async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
-    // TODO: See if we can avoid copying into linear memory just to check string equality
-    let title = match form.get("paste-title").as_string() {
-        Some(string) if string == "" => None,
-        other => other,
-    };
-    let author: Option<String> = form.get("paste-author").as_string();
-    let content = form.get("paste-content")
-        .as_string()
-        .ok_or(RenderError::MissingFormValue)?;
-    let ttl = match form.get("expiration").as_string().as_deref() {
-        Some("1 hour") => Ok(Some(3600u32)),
-        Some("24 hours") => Ok(Some(86400)),
-        Some("Never") if ALLOW_NEVER_EXPIRE => Ok(None),
-        Some(_) => Err(RenderError::InvalidExpiration),
-        None => Err(RenderError::MissingFormValue),
-    }?;
-    let unlisted = match form.get("privacy").as_string().as_deref() {
-        Some("Public") => Ok(false),
-        Some("Unlisted") => Ok(true),
-        Some(_) => Err(RenderError::InvalidExpiration),
-        None => Err(RenderError::MissingFormValue),
-    }?;
-    let new_paste = NewPaste::new(title, content, author, unlisted, ttl);
+async fn create_paste(form: FormData) -> Result<Promise, ResponseError> {
+    let new_paste = NewPaste::from_form_data(form)?;
     let put_future = new_paste.put();
 
-    let (stored_paste, path) = put_future.await?;
     let mut url = String::with_capacity(BASE_URL.len() + 7 + 32);
     url.push_str(BASE_URL);
+    let path = put_future.await?;
     url.push_str(&path);
 
     // Construct the  response
@@ -218,7 +185,7 @@ async fn create_paste(form: FormData) -> Result<Promise, RenderError> {
     Ok(Promise::from(JsValue::from(resp)))
 }
 
-fn not_found() -> Result<Promise, RenderError> {
+fn not_found() -> Result<Promise, ResponseError> {
     let html = include_str!("../public/404.html");
     let headers = Headers::new()?;
     headers.append("content-type", "text/html")?;
@@ -232,8 +199,25 @@ fn not_found() -> Result<Promise, RenderError> {
 // TODO: Match render errors to HTTP status codes where appropriate:
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
 
+trait ExpectJs {
+    fn ok_or_reject(self) -> Promise;
+}
+
+impl<E: ToString> ExpectJs for Result<Promise, E> {
+    fn ok_or_reject(self) -> Promise {
+        match self {
+            Ok(promise) => promise,
+            Err(e) => {
+                let err_string = e.to_string();
+                let js_val = JsValue::from_str(&err_string);
+                Promise::reject(&js_val)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Error)]
-enum RenderError {
+enum ResponseError {
     #[error("url parse error: {0}")]
     UrlParseError(#[from] UrlParseError),
 
@@ -274,14 +258,14 @@ enum RenderError {
     ContentTypeError,
 }
 
-impl From<JsValue> for RenderError {
+impl From<JsValue> for ResponseError {
     #[inline]
     fn from(value: JsValue) -> Self {
         Self::JsError(value)
     }
 }
 
-impl RenderError {
+impl ResponseError {
     fn as_js_value(self) -> JsValue {
         let error_string = self.to_string();
         JsValue::from_str(error_string.as_str())
