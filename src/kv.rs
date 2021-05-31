@@ -7,7 +7,7 @@ use chrono::{Duration, prelude::*};
 use uuid::Uuid;
 use web_sys::FormData;
 
-use crate::{ALLOW_NEVER_EXPIRE, ResponseError, templates};
+use crate::{ALLOW_NEVER_EXPIRE, BASE_PASTE_URL, ResponseError, templates};
 
 #[wasm_bindgen]
 extern "C" {
@@ -134,18 +134,6 @@ pub struct NewPaste {
 
 impl NewPaste {
     // TODO: Maybe a builder type? Async?
-    #[inline]
-    pub fn new(
-        title: Option<String>,
-        content: String,
-        author: Option<String>,
-        unlisted: bool,
-        ttl: Option<u32>
-    ) -> NewPaste {
-        // TODO: Should invalid TTLs be rejected here?
-        let id = Uuid::new_v4();
-        NewPaste { id, title, content, author, unlisted, ttl }
-    }
 
     pub(crate) fn from_form_data(
         form: FormData
@@ -200,24 +188,26 @@ impl NewPaste {
 
         let id = self.id;
         let prepared = self.prepare();
-
         let paste_json = serde_json::to_string(&prepared)?;
-        let mut id_str_buf = Uuid::encode_buffer();
-        let id_str = id.to_simple_ref().encode_lower(&mut id_str_buf);
 
+        const BUF_LEN: usize = 32;
+        let mut path_buf = [0u8; BUF_LEN];
+        let id_str = id.to_simple_ref().encode_lower(&mut path_buf);
 
         // Insert into KV.
         let promise = PasteNs::put(&id_str, &paste_json, ttl);
         let future = JsFuture::from(promise);
 
-        // While we wait on the put operation, create a string for the path
-        let path = format!("/paste/{}", id_str);
+        // While we wait on the put operation, create a string for the url
+        let mut url = String::with_capacity(BASE_PASTE_URL.len() + BUF_LEN);
+        url.push_str(BASE_PASTE_URL);
+        url.push_str(id_str);
 
         // We must await on the promise to ensure it's inserted but we can
-        // discard the (`undefined`) result.
+        // discard the (`undefined`) `Ok` result.
         future.await?;
 
-        Ok(path)
+        Ok(url)
     }
 
     fn prepare(self) -> StoredPaste {

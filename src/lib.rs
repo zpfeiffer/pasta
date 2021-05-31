@@ -17,6 +17,7 @@ use web_sys::{FetchEvent, FormData, Headers, Request, Response, ResponseInit};
 
 pub(crate) const BASE_DOMAIN: &str = "pasta.zpfeiffer.com";
 pub(crate) const BASE_URL: &str = "https://pasta.zpfeiffer.com";
+pub(crate) const BASE_PASTE_URL: &str = "https://pasta.zpfeiffer.com/paste/";
 pub(crate) const ALLOW_NEVER_EXPIRE: bool = false;
 
 cfg_if! {
@@ -175,10 +176,7 @@ async fn create_paste(form: FormData) -> Result<Promise, ResponseError> {
     let new_paste = NewPaste::from_form_data(form)?;
     let put_future = new_paste.put();
 
-    let mut url = String::with_capacity(BASE_URL.len() + 7 + 32);
-    url.push_str(BASE_URL);
-    let path = put_future.await?;
-    url.push_str(&path);
+    let url = put_future.await?;
 
     // Construct the  response
     let resp = Response::redirect_with_status(&url, 303)?;
@@ -186,13 +184,13 @@ async fn create_paste(form: FormData) -> Result<Promise, ResponseError> {
 }
 
 fn not_found() -> Result<Promise, ResponseError> {
-    let html = include_str!("../public/404.html");
+    const HTML: &str = include_str!("../public/404.html");
     let headers = Headers::new()?;
     headers.append("content-type", "text/html")?;
     let mut init = ResponseInit::new();
     init.status(404);
     init.headers(&JsValue::from(headers));
-    let resp = Response::new_with_opt_str_and_init(Some(html), &init)?;
+    let resp = Response::new_with_opt_str_and_init(Some(HTML), &init)?;
     Ok(Promise::from(JsValue::from(resp)))
 }
 
